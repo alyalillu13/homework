@@ -1,1 +1,215 @@
+#include <iostream>
+using namespace std;
 
+class CosmeticProduct { //предок абстракция
+protected:
+    string brand;
+    double price;
+public:
+    CosmeticProduct(string b, double p) : brand(b), price(p) {}
+    virtual ~CosmeticProduct() {}
+    
+    virtual void apply() const = 0;           // нанести
+    virtual string getType() const = 0;       // тип продукта
+    virtual double calculateTax() const = 0;  // налог (я не знаю что еще добавлять)
+    virtual int getShelfLife() const = 0;     // срок годности в месяцах
+    
+    virtual void Info() const {
+        cout << "Бренд: " << brand << ", Цена: " << price << " руб.\n";
+    }
+    
+    double getPrice() const { return price; }
+    string getBrand() const { return brand; }
+};
+
+class Skincare : virtual public CosmeticProduct {
+protected:
+    string skinType; // тип кожи
+public:
+    Skincare(string b, double p, string st) 
+        : CosmeticProduct(b, p), skinType(st) {}
+    
+    void apply() const override { //переопредилил
+        cout << "Нанесите средство на очищенную кожу лица\n";
+    }
+    
+    string getType() const override { //переопределили
+        return "Средство для ухода";
+    }
+    
+    double calculateTax() const override { //переопределили
+        return price * 0.10; // взяла например 10% налог
+    }
+    
+    int getShelfLife() const override {
+        return 24; // 24 месяца
+    }
+    
+    virtual void moisturize() const {
+        cout << "Увлажняет кожу\n";
+    }
+    
+    virtual void getSkinType() const {
+        cout << "Тип кожи: " << skinType << "\n";
+    }
+};
+
+class Makeup : virtual public CosmeticProduct {
+protected:
+    string color; //цвет помады, оттенок тонального крема
+public:
+    Makeup(string b, double p, string c) 
+        : CosmeticProduct(b, p), color(c) {}
+    
+    void apply() const override {
+        cout << "Нанесите на соответствующие участки лица\n";
+    }
+    
+    string getType() const override {
+        return "Декоративная косметика";
+    }
+    
+    double calculateTax() const override {
+        return price * 0.20; // 15% налог
+    }
+    
+    int getShelfLife() const override {
+        return 36; // 36 месяцев
+    }
+    
+    virtual void getColor() const {
+        cout << "Цвет: " << color << "\n";
+    }
+    
+    virtual void shimmerEffect() const {
+        cout << "Создает мерцающий эффект\n";
+    }
+};
+
+class Fragrance : virtual public CosmeticProduct {
+protected:
+    string scent;
+public:
+    Fragrance(string b, double p, string s) 
+        : CosmeticProduct(b, p), scent(s) {}
+    
+    void apply() const override { //переопредилил
+        cout << "Распылите на запястья, шею, одежду\n";
+    }
+    
+    string getType() const override { //переопределили
+        return "Парфюмерия";
+    }
+    
+    double calculateTax() const override { //переопределили
+        return price * 0.25; // 20% налог 
+    }
+    
+    int getShelfLife() const override {
+        return 36; // 36 месяцев
+    }
+    
+    virtual void getScent() const {
+        cout << "Аромат: " << scent << "\n";
+    }
+    
+    virtual void lastingPower() const {
+        cout << "Стойкость: до 6 часов\n";
+    }
+};
+
+class BodyCreamWithShimmer : public Skincare, public Makeup, public Fragrance {
+private:
+    double volume;
+public:
+    BodyCreamWithShimmer(string b, double p, string st, string c, string s, double v) 
+        : CosmeticProduct(b, p), Skincare(b, p, st), Makeup(b, p, c), Fragrance(b, p, s), volume(v) {}
+    
+    void apply() const override {
+        cout << "Нанесите крем на тело\n";
+    }
+    
+    string getType() const override {
+        return "Многофункциональный продукт: парфюмированный крем с шиммером ";
+    }
+    
+    double calculateTax() const override {
+        return price * 0.15; // 15% налог
+    }
+    
+    int getShelfLife() const override {
+        return 18; // 18 месяцев
+    }
+    
+    void Info() const override {
+        cout << "Бренд: " << brand << "\n";
+        cout << "Цена: " << price << " руб.\n";
+        cout << "Объем: " << volume << " мл\n";
+        cout << "Тип кожи: " << skinType << "\n";
+        cout << "Цвет: " << color << "\n";
+        cout << "Аромат: " << scent << "\n";
+    }
+    
+    void moisturize() const override {
+        cout << "Увлажнение тела\n";
+    }
+    
+    void shimmerEffect() const override {
+        cout << "Создает мерцающий эффект на коже\n";
+    }
+    
+    void lastingPower() const override {
+        cout << "Аромат держится до 12 часов\n";
+    }
+};
+
+
+void testProduct(const CosmeticProduct* product) {
+    product->Info();
+    cout << "Тип: " << product->getType() << "\n";
+    cout << "Способ применения: ";
+    product->apply();
+    cout << "Налог: " << product->calculateTax() << " руб.\n";
+    cout << "Срок годности: " << product->getShelfLife() << " месяцев\n";
+    cout << "\n";
+}
+
+int main() {
+    Skincare faceCream("Dior", 1500, "чувствительная");
+    Makeup lipstick("Dior", 3500, "красный");
+    Fragrance perfume("Dior", 8000, "цветочный");
+    BodyCreamWithShimmer bodyCream("Victoria's Secret", 2500, "нормальная", "золотистый", "ваниль", 200);
+    
+    CosmeticProduct* products[] = {&faceCream, &lipstick, &perfume, &bodyCream};
+    for (int i = 0; i < 4; i++) {
+        testProduct(products[i]);
+    }
+    //все данные для крема 
+    cout <<"\n";
+    Skincare* skincarePtr = &bodyCream;
+    skincarePtr->getSkinType();
+    skincarePtr->moisturize();
+    
+    Makeup* makeupPtr = &bodyCream;
+    makeupPtr->getColor();
+    makeupPtr->shimmerEffect();
+    
+    Fragrance* fragrancePtr = &bodyCream;
+    fragrancePtr->getScent();
+    fragrancePtr->lastingPower();
+    cout <<"\n";
+
+    //все виртуальные функций в одном объекте
+    bodyCream.Info();
+    bodyCream.apply();
+    cout << "Налог: " << bodyCream.calculateTax() << " руб.\n";
+    cout << "Срок годности: " << bodyCream.getShelfLife() << " месяцев\n";
+    bodyCream.getSkinType();
+    bodyCream.moisturize();
+    bodyCream.getColor();
+    bodyCream.shimmerEffect();
+    bodyCream.getScent();
+    bodyCream.lastingPower();
+    
+    return 0;
+}
