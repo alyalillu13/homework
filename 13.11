@@ -1,0 +1,59 @@
+#include <iostream>
+#include <string>
+using namespace std;
+
+class CosmeticProduct {
+public:
+    string brand;
+    double price;
+    CosmeticProduct(string b, double p) : brand(b), price(p) {}
+};
+
+class Skincare : virtual public CosmeticProduct {
+public:
+    Skincare(string b, double p) : CosmeticProduct(b, p) {}
+};
+
+class Makeup : virtual public CosmeticProduct {
+public:
+    Makeup(string b, double p) : CosmeticProduct(b, p) {}
+};
+
+class Fragrance : virtual public CosmeticProduct {
+public:
+    Fragrance(string b, double p) : CosmeticProduct(b, p) {}
+};
+
+class BodyCreamWithShimmer : public Skincare, public Makeup, public Fragrance {
+public:
+    BodyCreamWithShimmer(string b, double p) 
+        : CosmeticProduct(b, p), Skincare(b, p), Makeup(b, p), Fragrance(b, p) {}
+};
+
+int main() {
+    BodyCreamWithShimmer cream("Victoria's Secret", 2500);
+    
+    CosmeticProduct* basePtr = &cream;
+    Skincare* skincarePtr = &cream;
+    Makeup* makeupPtr = &cream;
+    Fragrance* fragrancePtr = &cream;
+    
+    cout << "basePtr->brand: " << basePtr->brand << "\n";
+    cout << "skincarePtr->brand: " << skincarePtr->brand << "\n";
+    cout << "makeupPtr->brand: " << makeupPtr->brand << "\n";
+    cout << "fragrancePtr->brand: " << fragrancePtr->brand << "\n\n";
+    
+    skincarePtr->brand = "Dior";
+    cout << "basePtr->brand: " << basePtr->brand << "\n";
+    cout << "skincarePtr->brand: " << skincarePtr->brand << "\n";
+    cout << "makeupPtr->brand: " << makeupPtr->brand << "\n";
+    cout << "fragrancePtr->brand: " << fragrancePtr->brand << "\n\n";
+    
+    makeupPtr->price = 3000;
+    cout << "basePtr->price: " << basePtr->price << "\n";
+    cout << "skincarePtr->price: " << skincarePtr->price << "\n";
+    cout << "makeupPtr->price: " << makeupPtr->price << "\n";
+    cout << "fragrancePtr->price: " << fragrancePtr->price << "\n\n";
+
+    return 0;
+}
