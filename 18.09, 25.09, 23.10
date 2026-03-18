@@ -1,1 +1,876 @@
+#include <iostream>
+#include <cstring> //использую только для strlen и strcpy
+#include <cmath>
+/* делала на основе файлика Tensor__Copy_ (1).pdf, тут реализованы три условия для 18.09, 25.09, 23.10
+Выбранные мною операции 
+1) Сложение и вычитание тензоров 
+2) Умножение и деление на скаляр 
+3) Тензорное произведение 
+4) Свертка
+5) Применение оператора к вектору 
+6) Применение формы к вектору 
 
+Сделала 7 тестов 
+1) Векторы и формы
+2) Билинейные формы
+3) Линейные операторы
+4) Операции с тензорами
+5) Тензорное произведение
+6) Обработка исключений
+7) Чтение из файла
+
+Для полноты возможно нужно было бы еще добавить тест с памятью, но тогда код был бы еще больше
+*/
+class TensorException {
+protected:
+    char* message; //описание ошибки 
+    const char* fileName; //имя файла где ошибка произошла
+    int lineNumber; //номер строки в файле
+    
+public:
+    TensorException(const char* msg,const char* file = nullptr, int line = 0) 
+        : fileName(file), lineNumber(line) { //выделяем память под сообщение о ошибке
+        message = new char[std::strlen(msg) + 1];
+        std::strcpy(message, msg);
+    }
+    
+    TensorException(const TensorException& other) 
+        : fileName(other.fileName), lineNumber(other.lineNumber) { //конструктор копирования
+        message = new char[std::strlen(other.message) + 1];
+        std::strcpy(message, other.message);
+    }
+    
+    virtual ~TensorException() { // виртуальный деструктор для правильного удаления через указатель на базовый класс
+        delete[] message;
+    }
+    
+    virtual const char* what() const {
+        return message;
+    }
+
+    void printInfo() const {
+        std::cout << "Error: " << message << std::endl;
+        if (fileName) std::cout << "File: " << fileName << ", Line: " << lineNumber << std::endl;
+    }
+};
+
+class InvalidIndexException : public TensorException { //выбрасывается при попытке обратиться к несуществующему индексу тензор
+private:
+    int indexValue; //какое значение индекса пытались использовать
+    int maxValidValue; //макс допустимое значение 
+    
+public:
+    InvalidIndexException(const char* msg, int idx, int max, const char* file = nullptr, int line = 0)
+        : TensorException(msg, file, line), indexValue(idx), maxValidValue(max) {}
+    
+    InvalidIndexException(const InvalidIndexException& other)
+        : TensorException(other), indexValue(other.indexValue), maxValidValue(other.maxValidValue) {} //вызываем конструктор базового класса
+    
+    void printInfo() const { //выводим ошибку, какой индекс дали и максимальное допустимое значение индекса
+        std::cout << "Invalid index error: " << what() << std::endl;
+        std::cout << "Index value: " << indexValue << ", max valid: " << maxValidValue << std::endl;
+    }
+};
+
+class TypeMismatchException : public TensorException { //выбрасывается при попытке выполнить операцию с тензорами несовместимых типов
+private:
+    int expectedP; //ожидаемое верхних
+    int expectedQ; //ожидаемое нижних
+    int actualP; //фактическое кол-во верхних
+    int actualQ; //фактическое кол-во нижних
+    
+public:
+    TypeMismatchException(const char* msg, int expP, int expQ, int actP, int actQ, const char* file = nullptr, int line = 0)
+        : TensorException(msg,file, line), expectedP(expP), expectedQ(expQ), actualP(actP), actualQ(actQ) {}
+    
+    TypeMismatchException(const TypeMismatchException& other)
+        : TensorException(other), expectedP(other.expectedP), expectedQ(other.expectedQ), 
+          actualP(other.actualP), actualQ(other.actualQ) {}
+    
+    void printInfo() const {
+        std::cout << "Type mismatch error: " << what() << std::endl;
+        std::cout << "Expected: (" << expectedP << "," << expectedQ 
+                  << "), Actual: (" << actualP << "," << actualQ << ")\n";
+    }
+};
+
+class FileReadException : public TensorException { //выбрасывается при ошибках чтения тензора из файла
+private:
+    char* filename;
+    
+public:
+    FileReadException(const char* msg, const char* fname, const char* file = nullptr, int line = 0)
+        : TensorException(msg, file, line) {
+        filename = new char[std::strlen(fname) + 1];
+        std::strcpy(filename, fname);
+    }
+    
+    FileReadException(const FileReadException& other)
+        : TensorException(other) {
+        filename = new char[std::strlen(other.filename) + 1];
+        std::strcpy(filename, other.filename);
+    }
+    
+    ~FileReadException() {
+        delete[] filename;
+    }
+    
+    const char* getFilename() const { return filename; }
+    void printInfo() const {
+        std::cout << "File error: " << what() << std::endl;
+        std::cout << "Filename: " << filename << std::endl;
+    }
+};
+
+class MemoryAllocationException : public TensorException { //выбрасывается при ошибках выделения памяти для тензора
+private:
+    size_t requestedSize; //сколько байт пытались выделить 
+    
+public:
+    MemoryAllocationException(const char* msg, size_t size, const char* file = nullptr, int line = 0)
+        : TensorException(msg, file, line), requestedSize(size) {}
+    
+    MemoryAllocationException(const MemoryAllocationException& other)
+        : TensorException(other), requestedSize(other.requestedSize) {}
+    
+    size_t getRequestedSize() const { return requestedSize; }
+    void printInfo() const {
+        std::cout << "Memory error: " << what() << std::endl;
+        std::cout << "Requested size: " << requestedSize << " bytes" << std::endl;
+    }
+};
+
+template<typename T> //шаблон с параметром типа T 
+class Tensor {
+private:
+    int* dimensions;     // размерности по каждому индексу
+    T* data;             // линейное хранение данных
+    int rank;            // общее число индексов (p + q)
+    int p;               // число верхних индексов (контравариантных)
+    int q;               // число нижних индексов (ковариантных)
+    int totalSize;       // общее количество элементов
+
+    int computeSize(const int* dims, int n) const { //вычисляет общее количество элементов тензора (произведение всех размерностей). Проверяет, что размерности положительные
+        int size = 1;
+        for (int i = 0; i < n; ++i) {
+            if (dims[i] <= 0) {
+                throw InvalidIndexException("Dimension must be positive", dims[i], 0, 
+                                           __FILE__, __LINE__);
+            }
+            size *= dims[i]; //вычисляем общее число элементов
+        }
+        return size;
+    }
+
+    int flattenIndex(const int* indices, int n) const {
+        if (n != rank) { //проверка кол-ва индексов
+            throw InvalidIndexException("Number of indices does not match tensor rank", n, rank, __FILE__, __LINE__);
+        }
+        int idx = 0;
+        int mult = 1;
+        for (int i = rank - 1; i >= 0; --i) {
+            if (indices[i] < 0 || indices[i] >= dimensions[i]) {
+                throw InvalidIndexException("Index out of range", 
+                                           indices[i], dimensions[i] - 1, 
+                                           __FILE__, __LINE__);
+            }
+            idx += indices[i] * mult; // преобразование многомерного индекса в линейный
+            mult *= dimensions[i]; // множитель для след измерения
+        }
+        return idx;
+    }
+
+    void copyData(const Tensor& other) { //для конструктора копирования и операторе присваивания
+        p = other.p;
+        q = other.q;
+        rank = other.rank;
+        totalSize = other.totalSize;
+        
+        dimensions = new int[rank];
+        for (int i = 0; i < rank; ++i)
+            dimensions[i] = other.dimensions[i];
+        
+        data = new T[totalSize];
+        for (int i = 0; i < totalSize; ++i)
+            data[i] = other.data[i];
+    }
+
+    void release() {
+        delete[] dimensions; // освобождает память, выделенную под массив размерностей
+        delete[] data; // освобождает память, выделенную под данные тензора
+        dimensions = nullptr;
+        data = nullptr;
+    }
+
+public:
+    Tensor() : dimensions(nullptr), data(nullptr), rank(0), p(0), q(0), totalSize(0) {} //конструктор по умолчанию
+
+    // конструктор с заданием типа (p, q) и размерностей
+    Tensor(int p_, int q_, const int* dims) : p(p_), q(q_) {
+        rank = p + q;
+        try {
+            dimensions = new int[rank]; //выделяем память под размерности
+            for (int i = 0; i < rank; ++i)
+                dimensions[i] = dims[i]; //копируем размерности
+            
+            totalSize = computeSize(dimensions, rank); //вычисляем общий размер
+            data = new T[totalSize]; //выделяем память под данные
+            
+            for (int i = 0; i < totalSize; ++i)
+                data[i] = T(); //инициализируем нулями 
+        }
+        catch (const std::bad_alloc& e) {
+            throw MemoryAllocationException("Failed to allocate memory for tensor", 
+                                           totalSize * sizeof(T), __FILE__, __LINE__);
+        }
+    }
+
+    Tensor(const Tensor& other) { //конструктор копирования
+        try { copyData(other); }
+        catch (const std::bad_alloc& e) {
+            throw MemoryAllocationException("Failed to allocate memory in copy constructor", 
+                                           other.totalSize * sizeof(T), __FILE__, __LINE__);
+        }
+    }
+
+    // конструктор перемещения
+    Tensor(Tensor&& other) noexcept 
+        : dimensions(other.dimensions), data(other.data), 
+          rank(other.rank), p(other.p), q(other.q), totalSize(other.totalSize) {
+        other.dimensions = nullptr; //обнуляем указатели исходного
+        other.data = nullptr;
+        other.rank = other.p = other.q = other.totalSize = 0;
+    }
+
+    ~Tensor() { // деструктор
+        release();
+    }
+
+    // оператор присваивания копированием
+    Tensor& operator=(const Tensor& other) {
+        if (this != &other) {
+            // Освобождаем ресурсы
+            T* newData = nullptr;
+            int* newDims = nullptr;
+            
+            try {
+                // сначала выделяем новую память
+                newDims = new int[other.rank];
+                for (int i = 0; i < other.rank; ++i)
+                    newDims[i] = other.dimensions[i];
+                
+                newData = new T[other.totalSize];
+                for (int i = 0; i < other.totalSize; ++i)
+                    newData[i] = other.data[i];
+                
+                // если всё ок, освобождаем старую память
+                release();
+                
+                // присваиваем новые значения
+                dimensions = newDims;
+                data = newData;
+                rank = other.rank;
+                p = other.p;
+                q = other.q;
+                totalSize = other.totalSize;
+            }
+            catch (const std::bad_alloc& e) {
+                delete[] newDims;
+                delete[] newData;
+                throw MemoryAllocationException("Failed to allocate memory in assignment operator", 
+                                               other.totalSize * sizeof(T), __FILE__, __LINE__);
+            }
+        }
+        return *this;
+    }
+
+    // оператор присваивания перемещением
+    Tensor& operator=(Tensor&& other) noexcept {
+        if (this != &other) {
+            release();
+            dimensions = other.dimensions;
+            data = other.data;
+            rank = other.rank;
+            p = other.p;
+            q = other.q;
+            totalSize = other.totalSize;
+            
+            other.dimensions = nullptr;
+            other.data = nullptr;
+            other.rank = other.p = other.q = other.totalSize = 0;
+        }
+        return *this;
+    }
+
+    T& operator()(const int* indices) {// доступ к элементу по индексам (чтение/запись)
+        return data[flattenIndex(indices, rank)];
+    }
+
+    const T& operator()(const int* indices) const {
+        return data[flattenIndex(indices, rank)];
+    }
+
+    Tensor operator+(const Tensor& other) const { //сложение тензоров 
+        if (p != other.p || q != other.q) {
+            throw TypeMismatchException("Tensor type mismatch for addition", 
+                                       p, q, other.p, other.q, __FILE__, __LINE__);
+        }
+        
+        for (int i = 0; i < rank; ++i) {
+            if (dimensions[i] != other.dimensions[i]) {
+                throw TypeMismatchException("Tensor dimensions mismatch for addition", 
+                                           dimensions[i], dimensions[i], 
+                                           other.dimensions[i], other.dimensions[i], 
+                                           __FILE__, __LINE__);
+            }
+        }
+        
+        Tensor result = *this;
+        for (int i = 0; i < totalSize; ++i)
+            result.data[i] += other.data[i];
+        
+        return result;
+    }
+
+    Tensor operator-(const Tensor& other) const { //вычитание тензоров
+        if (p != other.p || q != other.q) {
+            throw TypeMismatchException("Tensor type mismatch for subtraction", 
+                                       p, q, other.p, other.q, __FILE__, __LINE__);
+        }
+        
+        for (int i = 0; i < rank; ++i) {
+            if (dimensions[i] != other.dimensions[i]) {
+                throw TypeMismatchException("Tensor dimensions mismatch for subtraction", 
+                                           dimensions[i], dimensions[i], 
+                                           other.dimensions[i], other.dimensions[i], 
+                                           __FILE__, __LINE__);
+            }
+        }
+        
+        Tensor result = *this;
+        for (int i = 0; i < totalSize; ++i)
+            result.data[i] -= other.data[i];
+        
+        return result;
+    }
+
+    Tensor operator*(T scalar) const { //умножение на скаляр
+        Tensor result = *this;
+        for (int i = 0; i < totalSize; ++i)
+            result.data[i] *= scalar;
+        return result;
+    }
+
+    Tensor operator/(T scalar) const { //деление на скаляр
+        if (scalar == 0) {
+            throw TensorException("Division by zero", __FILE__, __LINE__);
+        }
+        Tensor result = *this;
+        for (int i = 0; i < totalSize; ++i)
+            result.data[i] /= scalar;
+        return result;
+    }
+
+    Tensor tensorProduct(const Tensor& other) const { // тензорное произведение
+        int newRank = rank + other.rank;
+        int* newDims = new int[newRank];
+        
+        for (int i = 0; i < rank; ++i)
+            newDims[i] = dimensions[i];
+        for (int i = 0; i < other.rank; ++i)
+            newDims[rank + i] = other.dimensions[i];
+        
+        Tensor result(p + other.p, q + other.q, newDims);
+        delete[] newDims;
+        
+        for (int i = 0; i < totalSize; ++i) {
+            for (int j = 0; j < other.totalSize; ++j) {
+                result.data[i * other.totalSize + j] = data[i] * other.data[j];
+            }
+        }
+        
+        return result;
+    }
+    
+    T trace() const { //свертка (след для оператора)
+        if (p != 1 || q != 1) {
+            throw TypeMismatchException("Trace requires tensor type (1,1)", 
+                                       1, 1, p, q, __FILE__, __LINE__);
+        }
+        
+        int n = dimensions[0]; // пусть размерности совпадают
+        T result = T();
+        
+        int* indices = new int[rank];
+        for (int i = 0; i < n; ++i) {
+            indices[0] = i;  // верхний индекс
+            indices[1] = i;  // нижний индекс
+            result += (*this)(indices);
+        }
+        delete[] indices;
+        
+        return result;
+    }
+
+    Tensor<T> applyToVector(const Tensor<T>& vector) const { //применение оператора к вектору
+        if (p != 1 || q != 1) {
+            throw TypeMismatchException("Operator must be type (1,1)", 
+                                       1, 1, p, q, __FILE__, __LINE__);
+        }
+        if (vector.p != 1 || vector.q != 0) {
+            throw TypeMismatchException("Vector must be type (1,0)", 
+                                       1, 0, vector.p, vector.q, __FILE__, __LINE__);
+        }
+        
+        int n = dimensions[0];
+        Tensor<T> result(1, 0, &n);
+        
+        int* opIndices = new int[2];
+        int* vecIndices = new int[1];
+        int* resIndices = new int[1];
+        
+        for (int i = 0; i < n; ++i) {
+            resIndices[0] = i;
+            T sum = T();
+            for (int j = 0; j < n; ++j) {
+                opIndices[0] = i;
+                opIndices[1] = j;
+                vecIndices[0] = j;
+                sum += (*this)(opIndices) * vector(vecIndices);
+            }
+            result(resIndices) = sum;
+        }
+        
+        delete[] opIndices;
+        delete[] vecIndices;
+        delete[] resIndices;
+        
+        return result;
+    }
+
+    // значение формы на векторе
+    T applyFormToVector(const Tensor<T>& vector) const {
+        if (p != 0 || q != 1) {
+            throw TypeMismatchException("Form must be type (0,1)", 
+                                       0, 1, p, q, __FILE__, __LINE__);
+        }
+        if (vector.p != 1 || vector.q != 0) {
+            throw TypeMismatchException("Vector must be type (1,0)", 
+                                       1, 0, vector.p, vector.q, __FILE__, __LINE__);
+        }
+        
+        int n = dimensions[0];
+        T result = T();
+        
+        int* formIndices = new int[1];
+        int* vecIndices = new int[1];
+        
+        for (int i = 0; i < n; ++i) {
+            formIndices[0] = i;
+            vecIndices[0] = i;
+            result += (*this)(formIndices) * vector(vecIndices);
+        }
+        
+        delete[] formIndices;
+        delete[] vecIndices;
+        
+        return result;
+    }
+
+    // селекторы
+    int getP() const { return p; }
+    int getQ() const { return q; }
+    int getRank() const { return rank; }
+    const int* getDimensions() const { return dimensions; }
+    int getTotalSize() const { return totalSize; }
+
+    // модификаторы
+    void setAll(const T& value) {
+        for (int i = 0; i < totalSize; ++i)
+            data[i] = value;
+    }
+
+    void fill(const T* values) { // заполнение тензора значениями
+        for (int i = 0; i < totalSize; ++i)
+            data[i] = values[i];
+    }
+
+    bool operator==(const Tensor& other) const { // проверка на равенство
+        if (p != other.p || q != other.q || rank != other.rank)
+            return false;
+        
+        for (int i = 0; i < rank; ++i)
+            if (dimensions[i] != other.dimensions[i])
+                return false;
+        
+        for (int i = 0; i < totalSize; ++i)
+            if (data[i] != other.data[i])
+                return false;
+        
+        return true;
+    }
+
+    void print(const char* name = nullptr) const { //вывод тензора
+        if (name) std::cout << name << " = ";
+        std::cout << "Tensor(" << p << "," << q << ") [";
+        for (int i = 0; i < rank; ++i) {
+            std::cout << dimensions[i];
+            if (i < rank - 1) std::cout << "x";
+        }
+        std::cout << "]\n";
+        
+        if (rank == 1) {
+            std::cout << "[";
+            for (int i = 0; i < dimensions[0]; ++i) {
+                int idx[1] = {i};
+                std::cout << (*this)(idx);
+                if (i < dimensions[0] - 1) std::cout << ", ";
+            }
+            std::cout << "]\n";
+        }
+        else if (rank == 2) {
+            for (int i = 0; i < dimensions[0]; ++i) {
+                std::cout << "[";
+                for (int j = 0; j < dimensions[1]; ++j) {
+                    int idx[2] = {i, j};
+                    std::cout << (*this)(idx);
+                    if (j < dimensions[1] - 1) std::cout << ", ";
+                }
+                std::cout << "]\n";
+            }
+        }
+        else {
+            std::cout << "Data: [";
+            for (int i = 0; i < totalSize && i < 10; ++i) {
+                std::cout << data[i];
+                if (i < totalSize - 1 && i < 9) std::cout << ", ";
+            }
+            if (totalSize > 10) std::cout << ", ...";
+            std::cout << "]\n";
+        }
+    }
+};
+
+class TensorReader {
+public:
+    template<typename T>
+    static Tensor<T> readFromFile(const char* filename) {
+        FILE* file = fopen(filename, "r");
+        if (!file) {
+            throw FileReadException("Cannot open file", filename, __FILE__, __LINE__);
+        }
+        
+        try {
+            int p, q;
+            // пропускаем комментарии, начинающиеся с #
+            char ch;
+            while ((ch = fgetc(file)) == '#') {
+                while (fgetc(file) != '\n');
+            }
+            ungetc(ch, file);
+            
+            if (fscanf(file, "%d %d", &p, &q) != 2) {
+                throw FileReadException("Failed to read p and q", filename, __FILE__, __LINE__);
+            }
+
+            int rank = p + q;
+            int* dims = nullptr;
+            
+            try {
+                dims = new int[rank];
+            }
+            catch (const std::bad_alloc& e) {
+                throw MemoryAllocationException("Failed to allocate dimensions array", 
+                                               rank * sizeof(int), __FILE__, __LINE__);
+            }
+            
+            for (int i = 0; i < rank; ++i) {
+                if (fscanf(file, "%d", &dims[i]) != 1) {
+                    delete[] dims;
+                    throw FileReadException("Failed to read dimensions", filename, __FILE__, __LINE__);
+                }
+            }
+
+            Tensor<T> tensor(p, q, dims);
+            delete[] dims;
+
+            T value;
+            int totalSize = tensor.getTotalSize();
+            int* indices = new int[rank];
+            
+            for (int i = 0; i < totalSize; ++i) {
+                // для double используем %lf
+                if (fscanf(file, "%lf", &value) != 1) {
+                    delete[] indices;
+                    throw FileReadException("Failed to read tensor data", filename, __FILE__, __LINE__);
+                }
+                
+                // преобразование линейного индекса в многомерный
+                int temp = i;
+                for (int j = rank - 1; j >= 0; --j) {
+                    indices[j] = temp % tensor.getDimensions()[j];
+                    temp /= tensor.getDimensions()[j];
+                }
+                
+                tensor(indices) = value;
+            }
+            
+            delete[] indices;
+            fclose(file);
+            return tensor;
+        }
+        catch (...) {
+            fclose(file);
+            throw;
+        }
+    }
+};
+
+
+void testVectorsAndForms() { 
+    std::cout <<  "Векторы и формы. Тест\n ";
+    // создание вектора (тип (1,0))
+    int vecDims[1] = {3};
+    Tensor<double> vector(1, 0, vecDims);
+    double vecValues[3] = {2.0, 3.0, 4.0};
+    vector.fill(vecValues);
+    vector.print("vector v");
+    
+    // создание ковектора/формы (тип (0,1))
+    Tensor<double> form(0, 1, vecDims);
+    double formValues[3] = {1.0, 2.0, 3.0};
+    form.fill(formValues);
+    form.print("form f");
+    
+    // применение формы к вектору
+    double result = form.applyFormToVector(vector);
+    std::cout << "f(v) = " << result << " (должно быть: 1*2 + 2*3 + 3*4 = 20)\n";
+    
+    // тензорное произведение вектора и формы = оператор (1,1)
+    Tensor<double> operator_tensor = vector.tensorProduct(form);
+    operator_tensor.print("v * f (оператор)");
+}
+
+void testBilinearForms() {
+    std::cout <<  "Билинейные формы. Тест\n ";
+    // создание билинейной формы (тип (0,2))
+    int bilinDims[2] = {2, 2};
+    Tensor<double> bilinearForm(0, 2, bilinDims);
+    double bilinValues[4] = {1.0, 2.0, 3.0, 4.0};
+    bilinearForm.fill(bilinValues);
+    bilinearForm.print("g (билинейная форма)");
+    
+    std::cout << "Билинейная форма g(u,v) должна вычисляться как сумма g_ij * u^i * v^j\n";
+    std::cout << "Вручную: 1*1*3 + 2*1*4 + 3*2*3 + 4*2*4 = " 
+              << (1*1*3 + 2*1*4 + 3*2*3 + 4*2*4) << std::endl;
+}
+
+void testLinearOperators() { 
+    std::cout <<  "Линейные операторы. Тест\n ";
+    // матрица поворота на 90 градусов 
+    int opDims[2] = {2, 2};
+    Tensor<double> rotation(1, 1, opDims);
+    double rotValues[4] = {0.0, -1.0, 1.0, 0.0};
+    rotation.fill(rotValues);
+    rotation.print("R (поворот на 90 градусов)");
+    
+    // вектор для применения
+    int vecDims[1] = {2};
+    Tensor<double> vec(1, 0, vecDims);
+    double vecValues[2] = {1.0, 0.0};
+    vec.fill(vecValues);
+    vec.print("v");
+    
+    // применение оператора к вектору
+    Tensor<double> result = rotation.applyToVector(vec);
+    result.print("R(v)");
+    std::cout << "Ожидаемый результат: (0, 1)\n";
+    
+    // след оператора
+    double trace = rotation.trace();
+    std::cout << "tr(R) = " << trace << " (должно быть: 0)\n";
+}
+
+void testTensorOperations() {
+    std::cout <<  "Операции для тензоро. Тест\n ";
+    // создание двух тензоров типа (0,2)
+    int dims2[2] = {2, 2};
+    Tensor<double> a(0, 2, dims2);
+    Tensor<double> b(0, 2, dims2);
+    double aValues[4] = {1.0, 2.0, 3.0, 4.0};
+    double bValues[4] = {3.0, 4.0, 5.0, 6.0};
+    a.fill(aValues);
+    b.fill(bValues);
+    a.print("a");
+    b.print("b");
+    
+    // сложение
+    Tensor<double> sum = a + b;
+    sum.print("a + b");
+    
+    // 2a + b
+    Tensor<double> scaled = a * 2.0;
+    Tensor<double> combined = scaled + b;
+    combined.print("2a + b");
+    std::cout << "Ожидаемые первые два элемента: 2*1+3=5, 2*2+4=8\n";
+    
+    // вычитание
+    Tensor<double> diff = a - b;
+    diff.print("a - b");
+    
+    // деление на скаляр
+    Tensor<double> divided = a / 2.0;
+    divided.print("a / 2");
+}
+
+void testTensorProduct() {
+    std::cout <<  "Умножение тензоров. Тест\n";
+    // вектор
+    int vecDims[1] = {2};
+    Tensor<double> v(1, 0, vecDims);
+    double vValues[2] = {2.0, 3.0};
+    v.fill(vValues);
+    v.print("v");
+    
+    // ковектор
+    Tensor<double> alpha(0, 1, vecDims);
+    double alphaValues[2] = {4.0, 5.0};
+    alpha.fill(alphaValues);
+    alpha.print("α");
+    
+    // тензорное произведение
+    Tensor<double> v_alpha = v.tensorProduct(alpha);
+    v_alpha.print("v ⊗ α");
+    
+    std::cout << "Ожидаемая матрица:\n";
+    std::cout << "[2*4=8, 2*5=10]\n";
+    std::cout << "[3*4=12, 3*5=15]\n";
+    
+    // тензорное произведение двух билинейных форм
+    int dims2[2] = {2, 2};
+    Tensor<double> form1(0, 2, dims2);
+    Tensor<double> form2(0, 2, dims2);
+    double f1Values[4] = {1.0, 2.0, 3.0, 4.0};
+    double f2Values[4] = {5.0, 6.0, 7.0, 8.0};
+    form1.fill(f1Values);
+    form2.fill(f2Values);
+    
+    Tensor<double> product = form1.tensorProduct(form2);
+    std::cout << "\nТензорное произведение двух форм (0,2) дает тензор типа (0,4)\n";
+    std::cout << "Размерность: " << product.getRank() << "D, всего элементов: " 
+              << product.getTotalSize() << "\n";
+}
+
+void testExceptions() {
+    std::cout <<  "Ошибки. Тест\n ";
+    //неправильная индексация
+    try {
+        int dims[2] = {2, 3};
+        Tensor<double> t(1, 1, dims);
+        
+        int badIndices[2] = {2, 2}; // Индекс 2 выходит за пределы (макс 1)
+        std::cout << "Пытаемся обратиться по индексу [2,2]\n";
+        double val = t(badIndices);
+    }
+    catch (const InvalidIndexException& e) {
+        e.printInfo();
+    }
+    
+    // сложение тензоров разных типов
+    try {
+        int dims1[1] = {2};
+        int dims2[2] = {2, 2};
+        
+        Tensor<double> t1(1, 0, dims1);  // вектор
+        Tensor<double> t2(0, 2, dims2);  // билинейная форма
+        
+        std::cout << "\nПытаемся сложить вектор и билинейную форму\n";
+        Tensor<double> t3 = t1 + t2;
+    }
+    catch (const TypeMismatchException& e) {
+        e.printInfo();
+    }
+    
+    // деление на ноль
+    try {
+        int dims[1] = {2};
+        Tensor<double> t(1, 0, dims);
+        double vals[2] = {1.0, 2.0};
+        t.fill(vals);
+        
+        std::cout << "\nПытаемся разделить тензор на ноль\n";
+        Tensor<double> t2 = t / 0.0;
+    }
+    catch (const TensorException& e) {
+        std::cout << "Ошибка: " << e.what() << std::endl;
+    }
+    
+    // след от не-оператора
+    try {
+        int dims[2] = {2, 2};
+        Tensor<double> t(0, 2, dims);  // билинейная форма, не оператор
+        
+        std::cout << "\nПытаемся взять след от билинейной формы\n";
+        double tr = t.trace();
+    }
+    catch (const TypeMismatchException& e) {
+        e.printInfo();
+    }
+}
+
+void testFileReading() {
+    /* формат файла сделала такой: 
+    # строчка с комментарием, при чтении пропускаем её
+    p q
+    размерность_1 размерность_2 ... размерность_N
+    значение_1 значение_2 значение_3 ... значение_M
+    */
+    std::cout << "\n" ;
+    try {
+        FILE* testFile = fopen("test_tensor.txt", "w");
+        fprintf(testFile, "# Тестовый тензор - вектор\n");
+        fprintf(testFile, "1 0\n");
+        fprintf(testFile, "4\n");
+        fprintf(testFile, "1.5 2.5 3.5 4.5\n");
+        fclose(testFile);
+        
+        std::cout << "Создан файл test_tensor.txt с данными\n";
+        
+        // Читаем тензор из файла
+        Tensor<double> t = TensorReader::readFromFile<double>("test_tensor.txt");
+        t.print("Прочитанный вектор");
+        
+        std::cout << "Ожидаемые значения: [1.5, 2.5, 3.5, 4.5]\n";
+        
+        // Удаляем тестовый файл
+        remove("test_tensor.txt");
+        std::cout << "Тестовый файл удален\n";
+    }
+    catch (const FileReadException& e) {
+        e.printInfo();
+    }
+    catch (const TensorException& e) {
+        std::cout << "Ошибка: " << e.what() << std::endl;
+    }
+}
+
+int main() {
+    try {
+        // запуск всех тестов
+        testVectorsAndForms();
+        testBilinearForms();
+        testLinearOperators();
+        testTensorOperations();
+        testTensorProduct();
+        testExceptions();
+        testFileReading();
+    }
+    catch (const TensorException& e) {
+        std::cout << "\n!!! Непредвиденная ошибка: " << e.what() << std::endl;
+    }
+    catch (const std::exception& e) {
+        std::cout << "\n!!! Стандартная ошибка: " << e.what() << std::endl;
+    }
+    
+    return 0;
+}
