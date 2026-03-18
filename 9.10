@@ -1,0 +1,164 @@
+#include <iostream>
+#include <cmath>
+
+using namespace std;
+
+class Rational {
+private:
+    int num;
+    int den;
+    void reduce() {
+        if (den < 0) { num = -num; den = -den; }
+        int a = abs(num), b = den, gcd = 1;
+        while (b != 0) { int t = b; b = a % b; a = t; }
+        gcd = a;
+        if (gcd != 0 && gcd != 1) {
+            num /= gcd;
+            den /= gcd;
+        }
+    }
+
+public:
+    Rational() : num(0), den(1) {}
+    Rational(int n, int d = 1) : num(n), den(d) {
+        if (den == 0) den = 1;
+        reduce();
+    }
+    Rational(double x, int precision = 1000000) {
+        int sign = (x < 0) ? -1 : 1;
+        x = abs(x);
+        int integerPart = (int)x;
+        double fractionalPart = x - integerPart;
+        if (fractionalPart < 1e-10) {
+            num = sign * integerPart;
+            den = 1;
+        } else {
+            int numerator = (int)(fractionalPart * precision + 0.5);
+            int denominator = precision;
+            int a = numerator, b = denominator, gcd = 1;
+            while (b != 0) { 
+                int t = b; 
+                b = a % b; 
+                a = t; 
+            }
+            gcd = a;
+            if (gcd != 0) {
+                numerator /= gcd;
+                denominator /= gcd;
+            }
+            num = sign * (integerPart * denominator + numerator);
+            den = denominator;
+        }
+        reduce();
+    }
+
+    operator double() const { return (double)num / den; }
+    operator int() const { return num / den; }
+    Rational operator-() const {
+        return Rational(-num, den);
+    }
+
+    Rational operator+(const Rational& other) const {
+        return Rational(num * other.den + other.num * den, den * other.den);
+    }
+
+    Rational operator-(const Rational& other) const {
+        return Rational(num * other.den - other.num * den, den * other.den);
+    }
+
+    Rational operator*(const Rational& other) const {
+        return Rational(num * other.num, den * other.den);
+    }
+
+    friend ostream& operator<<(ostream& os, const Rational& r) {
+        os << r.num << "/" << r.den;
+        return os;
+    }
+
+    friend istream& operator>>(istream& is, Rational& r) {
+        char slash;
+        is >> r.num >> slash >> r.den;
+        if (r.den == 0) r.den = 1;
+        r.reduce();
+        return is;
+    }
+    int getNum() const { return num; }
+    int getDen() const { return den; }
+};
+
+class Complex {
+private:
+    double real;
+    double imag;
+
+public:
+    Complex() : real(0), imag(0) {}
+    Complex(double r, double i = 0) : real(r), imag(i) {}
+
+    operator double() const { return real; }
+    operator Rational() const {
+        return Rational(real);
+    }
+
+    double operator+() const {
+        return sqrt(real * real + imag * imag);
+    }
+
+    Complex operator+(const Complex& other) const {
+        return Complex(real + other.real, imag + other.imag);
+    }
+
+    Complex operator-(const Complex& other) const {
+        return Complex(real - other.real, imag - other.imag);
+    }
+
+    Complex operator*(const Complex& other) const {
+        return Complex(real * other.real - imag * other.imag,
+            real * other.imag + imag * other.real);
+    }
+
+    Complex operator+(const Rational& r) const {
+        return Complex(real + (double)r, imag);
+    }
+
+    friend ostream& operator<<(ostream& os, const Complex& c) {
+        os << c.real;
+        if (c.imag >= 0) os << "+" << c.imag << "i";
+        else os << c.imag << "i";
+        return os;
+    }
+
+    friend istream& operator>>(istream& is, Complex& c) {
+        char i;
+        is >> c.real >> c.imag >> i;
+        return is;
+    }
+
+    double getReal() const { return real; }
+    double getImag() const { return imag; }
+};
+
+int main() {
+    Rational r1(3, 4);
+    Rational r2(1, 2);
+    Complex c1(2, 3);
+    Complex c2(1, 1);
+    cout << "r1 = " << r1 << endl;
+    cout << "r2 = " << r2 << endl;
+    cout << "r1 + r2 = " << r1 + r2 << endl;
+    cout << "r1 - r2 = " << r1 - r2 << endl;
+    cout << "r1 * r2 = " << r1 * r2 << endl;
+    cout << "-r1 = " << -r1 << endl;
+    cout << "c1 = " << c1 << endl;
+    cout << "c2 = " << c2 << endl;
+    cout << "c1 + c2 = " << c1 + c2 << endl;
+    cout << "c1 - c2 = " << c1 - c2 << endl;
+    cout << "c1 * c2 = " << c1 * c2 << endl;
+    cout << "|c1| = " << +c1 << endl;
+    cout << "c1 + r1 = " << c1 + r1 << endl;
+    cout << "r1 как double: " << (double)r1 << endl;
+    cout << "r1 целая часть: " << (int)r1 << endl;
+    cout << "c1 действительная часть: " << (double)c1 << endl;
+    cout << "c1 действительная часть как дробь: " << (Rational)c1 << endl;
+    return 0;
+}
