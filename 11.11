@@ -1,0 +1,64 @@
+#include <iostream>
+#include <string>
+using namespace std;
+
+class Skincare {
+public:
+    virtual ~Skincare() {}
+    virtual void moisturize() = 0;
+};
+
+class Makeup {
+public:
+    virtual ~Makeup() {}
+    virtual void applyColor() = 0;
+};
+
+class Fragrance {
+public:
+    virtual ~Fragrance() {}
+    virtual void applyScent() = 0;
+};
+
+class BodyCream : public Skincare, public Makeup, public Fragrance {
+    string name;
+public:
+    BodyCream(string n) : name(n) {}
+    
+    void moisturize() override {
+        cout << name << ": увлажняет кожу\n";
+    }
+    
+    void applyColor() override {
+        cout << name << ": shine bright like a diamond\n";
+    }
+    
+    void applyScent() override {
+        cout << name << ": пахнет кокосиком\n";
+    }
+};
+
+int main() {
+    BodyCream cream("Крем Victoria's secret");
+    
+    Skincare* skincarePtr = &cream;
+    Makeup* makeupPtr = dynamic_cast<Makeup*>(skincarePtr);
+    if (makeupPtr) {
+        makeupPtr->applyColor();
+    }
+    else {
+        cout << "Error" << endl;
+    }
+    Fragrance* fragrancePtr = dynamic_cast<Fragrance*>(skincarePtr);
+    if (fragrancePtr) {
+        fragrancePtr->applyScent();
+    }
+    else {
+        cout << "Error" << endl;
+    }
+    /*
+    Makeup* bad1 = static_cast<Makeup*>(skincarePtr);
+    Fragrance* bad2 = static_cast<Fragrance*>(skincarePtr);
+    */
+    return 0;
+}
