@@ -1,1 +1,323 @@
+#include <iostream>
+using namespace std;
 
+template <class T> 
+class Array { 
+    T* p;          
+    T init;        
+    unsigned int size; 
+    
+public:
+    Array(T val) : p(0), init(val), size(0) {};
+
+    ~Array() { if (p) delete[] p;}
+    
+    T& operator[ ](unsigned int ind) { 
+        if (ind >= size) Resize(ind);  // расширяем до нужного размера
+        return p[ind];                  // возвращаем ссылку на элемент
+    }
+    
+    int get_size() const { return (int)size; } 
+    T get(unsigned int ind) const {
+        if (ind < size) {return p[ind];}  // если индекс существует, вернуть значение
+        else {return init;}                // иначе возвращаем значение по умолчанию
+    }
+
+private:
+    Array(const Array<T>& ref);
+    void operator=(const Array<T>& ref);
+    void Resize(unsigned int req_ind) {
+        unsigned int newsize = req_ind + 1;  // новый размер
+        T* q = new T[newsize];                // выделяем новую память
+        unsigned int i;
+        // копируем старые элементы
+        for (i = 0; i < size; i++) { 
+            q[i] = p[i];
+        }
+        for (; i < newsize; i++) {
+            q[i] = init;
+        }
+        if (p) { delete[] p; }
+        p = q;
+        size = newsize;
+    }
+};
+
+template <class T, T init_value, int dim>
+class MultiMatrix;
+
+//размерность больше 1
+template <class T, T init_value, int dim>
+class MultiMatrix {
+    // массив указателей на матрицы меньшей размерности
+    Array< MultiMatrix<T, init_value, dim-1>*> arr;
+    
+public:
+    MultiMatrix():arr((MultiMatrix<T, init_value, dim - 1>*)0) {}
+    MultiMatrix(const MultiMatrix& other);
+    ~MultiMatrix() {
+        int n = arr.get_size();  // сколько подматриц создано
+        int i;
+        for (i = 0; i < n; i = i + 1) {
+            MultiMatrix<T, init_value, dim - 1>* pSub = arr.get((unsigned int)i);
+            if (pSub != 0) {delete pSub;}  // удаляем каждую подматрицу
+        }
+    }
+
+    // оператор доступа по индексу
+    MultiMatrix<T, init_value, dim - 1>& operator[](unsigned int idx) {
+        MultiMatrix<T, init_value, dim - 1>* pSub = arr[idx];  // получаем указатель
+        if (pSub == 0) {  // если подматрицы еще нет
+            pSub = new MultiMatrix<T, init_value, dim - 1>();  // создаем новую
+            arr[idx] = pSub;  // сохраняем указатель
+        }
+        return *pSub;  // возвращаем ссылку на подматрицу
+    }
+    
+    // кол-во созданных подматриц на этом уровне
+    int Size() {return arr.get_size();}
+    MultiMatrix<T, init_value, dim - 1>* elem(unsigned int i) { return arr.get(i);}
+};
+
+// размерность 1 
+template <class T, T init_value>
+class MultiMatrix<T, init_value, 1>: public Array<T>{
+public:
+    MultiMatrix() : Array<T>(init_value) { }
+    MultiMatrix(const MultiMatrix& other);
+    int Size() { 
+        return this->get_size(); 
+    }
+};
+
+//размерность > 1
+template <class T, T init_value, int dim>
+void copyinplace(MultiMatrix<T, init_value, dim>& curm, MultiMatrix<T, init_value, dim>& cvm) {
+    int i;
+    for (i = 0; i < cvm.Size(); i = i + 1) {
+        MultiMatrix<T, init_value, dim-1>* p = cvm.elem((unsigned int)i);
+        if (p != 0) {  // если подматрица существует
+            // создаем подматрицу в результате и рекурсивно копируем
+            MultiMatrix<T, init_value, dim - 1>& subcurm = curm[(unsigned int)i];
+            copyinplace(subcurm, *p); 
+        }
+    }
+}
+
+// копирование для размерности 1
+template <class T, T init_value>
+void copyinplace(MultiMatrix<T, init_value, 1>& curm, MultiMatrix<T, init_value, 1>& cvm){
+    int i;
+    for (i = 0; i < cvm.Size(); i = i + 1) {
+        curm[(unsigned int)i] = cvm[(unsigned int)i];
+    }
+}
+
+template <class T, T init_value, int dim>
+MultiMatrix<T, init_value, dim>::MultiMatrix(const MultiMatrix<T, init_value, dim>& other)
+    :arr((MultiMatrix<T, init_value, dim - 1>*)0) 
+{
+    // копируем содержимое other в текущий объект
+    copyinplace(*this, (MultiMatrix<T, init_value, dim>&)other);
+}
+
+// конструктор копирования для размерности 1
+template <class T, T init_value>
+MultiMatrix<T, init_value, 1>::MultiMatrix(const MultiMatrix<T, init_value, 1>& other)
+    : Array<T>(init_value)  // вызываем конструктор Array
+{
+    int n = other.Size();
+    int i;
+    // копируем все элементы
+    for (i = 0; i < n; i = i + 1) {
+        (*this)[(unsigned int)i] = other.get((unsigned int)i);
+    }
+}
+
+//сложение для размерности > 1
+template <class T, T init_value, int dim>
+void add(MultiMatrix<T, init_value, dim>& result, 
+         MultiMatrix<T, init_value, dim>& a, 
+         MultiMatrix<T, init_value, dim>& b){
+    int sizeA = a.Size();
+    int sizeB = b.Size();
+    int maxSize = sizeA;
+    if (sizeB > maxSize) {maxSize = sizeB;}  // берем максимальный размер
+
+    int i;
+    for (i = 0; i < maxSize; i = i + 1) {
+        // Получаем указатели на подматрицы из a и b (если они существуют)
+        MultiMatrix<T, init_value, dim - 1>* pa = 0;
+        MultiMatrix<T, init_value, dim - 1>* pb = 0;
+        if (i < sizeA) { pa = a.elem((unsigned int)i); }
+        if (i < sizeB) { pb = b.elem((unsigned int)i);}
+        // если хотя бы одна подматрица существует
+        if (pa != 0 || pb != 0) {
+            MultiMatrix<T, init_value, dim - 1>& subRes = result[(unsigned int)i];
+            if (pa != 0 && pb != 0) { 
+                // обе подматрицы есть - рекурсивно складываем 
+                add(subRes, *pa, *pb);
+            } 
+            else if (pa != 0 && pb == 0) { 
+                // только в a - копируем из a
+                copyinplace(subRes, *pa);
+            } 
+            else { 
+                // только в b - копируем из b
+                copyinplace(subRes, *pb);
+            }
+        }
+    }
+}
+
+// сложение для размерности 1
+template <class T, T init_value>
+void add(MultiMatrix<T, init_value, 1>& result, 
+         MultiMatrix<T, init_value, 1>& a, 
+         MultiMatrix<T, init_value, 1>& b){
+    int sizeA = a.Size();
+    int sizeB = b.Size();
+    int maxSize = sizeA;
+    if (sizeB > maxSize) { maxSize = sizeB; } 
+
+    int i;
+    for (i = 0; i < maxSize; i = i + 1) {
+        // берем значения (или init_value, если индекс не сущ)
+        T va = init_value;
+        T vb = init_value;
+        if (i < sizeA) { va = a[(unsigned int)i]; }
+        if (i < sizeB) { vb = b[(unsigned int)i];}
+        
+        // складываем и сохраняем
+        result[(unsigned int)i] = (T)(va + vb);
+    }
+}
+
+template <class T, T init_value, int dim>
+MultiMatrix<T, init_value, dim> operator+(MultiMatrix<T, init_value, dim>& a,
+                                          MultiMatrix<T, init_value, dim>& b)
+{
+    MultiMatrix<T, init_value, dim> res;  // создаем пустую матрицу
+    add(res, a, b);  // заполняем результатом сложения
+    return res;      // возвращаем
+}
+
+
+template <class T, T init_value, int dim>
+void printrec(std::ostream& os, MultiMatrix<T, init_value, dim>& m, int level, int indices[]);
+
+// размерность > 1
+template <class T, T init_value, int dim>
+void printrec(std::ostream& os, MultiMatrix<T, init_value, dim>& m, int level, int indices[]) {
+    int i;
+    // проходим по всем подматрицам
+    for (i = 0; i < m.Size(); i = i + 1) {
+        indices[level] = i;  // запоминаем текущий индекс
+        MultiMatrix<T, init_value, dim - 1>* p = m.elem((unsigned int)i);
+        if (p != 0) { 
+            // если подматрица существует, печатаем ее рекурсивно
+            printrec(os, *p, level + 1, indices);
+        }
+    }
+}
+
+// размерность 1 - выводим только не-default элементы
+template <class T, T init_value>
+void printrec(std::ostream& os, MultiMatrix<T, init_value, 1>& m, int level, int indices[]){
+    int i;
+    for (i = 0; i < m.Size(); i = i + 1) {
+        indices[level] = i;  // запоминаем текущий индекс
+        // печатаем только если значение отличается от default
+        if (m[(unsigned int)i] != init_value) { 
+            os << "("; 
+            int j;
+            // выводим все индексы через запятую
+            for (j = 0; j <= level; j = j + 1) {
+                os << indices[j];
+                if (j < level) { os << ", "; }
+            }
+            os << ") = " << m[(unsigned int)i] << "\n";
+        }
+    }
+}
+
+// Оператор вывода в поток
+template <class T, T init_value, int dim>
+std::ostream& operator<<(std::ostream& os, MultiMatrix<T, init_value, dim>& m){
+    int indices[dim];  // массив для хранения текущих индексов
+    printrec(os, m, 0, indices);  // начинаем рекурсивную печать
+    return os;
+}
+
+
+template <class T, T init_value, int dim>
+void setelements(MultiMatrix<T, init_value, dim>& m, unsigned int idx[], const T& value);
+
+template <class T, T init_value>
+void setelements(MultiMatrix<T, init_value, 1>& m, unsigned int idx[], const T& value);
+
+//размерность > 1
+template <class T, T init_value, int dim>
+void setelements(MultiMatrix<T, init_value, dim>& m, unsigned int idx[], const T& value){
+    // Переходим к подматрице по первому индексу, остальные индексы передаем дальше
+    setelements(m[(unsigned int)idx[0]], idx + 1, value);
+}
+
+// размерность 1 - просто присваиваем значение в Array
+template <class T, T init_value>
+void setelements(MultiMatrix<T, init_value, 1>& m, unsigned int idx[], const T& value){
+    m[(unsigned int)idx[0]] = value;
+}
+
+template <class T, T init_value, int dim>
+std::istream& operator>>(std::istream& is, MultiMatrix<T, init_value, dim>& m){
+    int n;  // количество элементов, которые будем вводить
+    if (!(is >> n)) return is;  // если не удалось прочитать, выходим
+    
+    int k;
+    for (k = 0; k < n; k = k + 1) {
+        unsigned int idx[dim];  // массив индексов размерности dim
+        int j;
+        // Читаем все индексы
+        for (j = 0; j < dim; j = j + 1) {
+            is >> idx[j];
+        }
+        T val;
+        is >> val;  // читаем значение
+        setelements(m, idx, val);  // устанавливаем элемент
+    }
+    return is;
+}
+
+
+int main() {
+    MultiMatrix<int, -1, 5> mm;
+    mm[3][4][5][2][7] = 193;  
+    mm[2][2][2][2][2] = 251; 
+    
+    cout << "Access test:\n";
+    cout << mm[3][4][5][2][7] << ", " << mm[2][2][2][2][2] << "\n";
+    cout << mm[0][1][2][3][4] << ", " << mm[1][2][3][2][1] << "\n\n";
+    cout << mm << "\n"; 
+
+    const int dim = 3;
+    MultiMatrix<int, 0, dim> a;
+    MultiMatrix<int, 0, dim> b;
+
+    cout << "Enter number of elements for matrix a, then i j k value:\n";
+    cin >> a;  // вводим матрицу a
+    cout << "Matrix a:\n";
+    cout << a;  // выводим a
+    
+    cout << "Enter number of elements for matrix b, then i j k value:\n";
+    cin >> b;  // вводим матрицу b
+    cout << "Matrix b:\n";
+    cout << b;  // выводим b
+
+    // складываем матрицы
+    MultiMatrix<int, 0, dim> c = a + b;
+    cout << "Matrix c = a + b:\n";
+    cout << c;  // выводим результат
+    
+    return 0;
+}
